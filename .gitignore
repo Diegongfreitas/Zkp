@@ -1,0 +1,10 @@
+/hashes/go.sum
+/hashes/go.mod
+/hashes/main
+/main/go.mod
+/main/go.sum
+/main/main
+/main/keys
+/main/prover
+/test/go.mod
+/test/go.sum

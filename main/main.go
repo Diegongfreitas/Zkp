@@ -9,7 +9,10 @@ import (
 	"github.com/consensys/gnark/backend/witness"
 	
 	"github.com/consensys/gnark-crypto/ecc"
-	
+	bn254 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/mimc"
+
+	"math/big"
+	"log"
 	"fmt"
 	"bytes"
 	"io/ioutil"
@@ -17,22 +20,58 @@ import (
 
 )
 
-// Circuit defines a file knowledge proof
-// mimc(secret File) = public hash
+
 type Circuit struct {
-    File_Num frontend.Variable
-    Hash     frontend.Variable `gnark:",public"`}
+	// Circuit defines a file knowledge proof
+	// mimc(secret File) = public hash
+    Hash     frontend.Variable `gnark:",public"`
+	File_Bytes []frontend.Variable
+    }
 
-// Define declares the circuit's constraints
+
 func (circuit *Circuit) Define(api frontend.API) error {
-
+	// Define declares the circuit's constraints
     mimc, _ := mimc.NewMiMC(api)	
-	mimc.Write(circuit.File_Num)
+	mimc.Write(circuit.File_Bytes[:])
     // specify constraints
-    // mimc(File_Num) == Hash
+    // mimc(File_Bytes) == Hash
     api.AssertIsEqual(circuit.Hash, mimc.Sum())
 
     return nil
+}
+
+func fileHash() ([]byte, []frontend.Variable){
+	fmt.Println("Insert file full path:") 
+	//Ex: /home/diego/Pictures/Jack.jpg
+	var path string
+	fmt.Scanln(&path)
+
+	file, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	limit := (len(file)/32)+(len(file)%32)
+	var file_bytes []frontend.Variable
+	var bignum []*big.Int
+	goMimc := bn254.NewMiMC()
+	for j:=0; j < limit; j++{
+		// minimal cs res = hash(data)
+		var data []string
+		for i:= 0; i < 32; i++{
+			data[j] = data[j] + fmt.Sprintf("%b", file[i])
+		}
+
+		// running MiMC (Go)
+		
+		bignum[j], _ = new(big.Int).SetString(data[j], 2)
+		goMimc.Write(bignum[j].Bytes())
+
+		// assert correctness against correct witness
+		file_bytes[j] = data[j]
+	}
+	file_hash := goMimc.Sum(nil)
+	return file_hash, file_bytes
 }
 
 func ttp(){
@@ -99,13 +138,12 @@ func prover(){
 
 	//-----------------------------------------------Asking Prover for Witness assignment---------------------------------------------
 	
-	fmt.Println("Please Prover, insert file hash: ")			
-	var file_hash string
-	fmt.Scanln(&file_hash)
+	file_hash, file_bytes := fileHash()
+	
 
-	assignment := &Circuit{																			//Creating a constraint satisfiable assignment
-		Hash: 		file_hash,																		//both with 77 characters
-		File_Num: "21765111349035677562249794983296132341094",										//witness limit is 32 bytes																							
+	assignment := &Circuit{	//Creating a constraint satisfiable assignment											
+		Hash: 		file_hash,
+		File_Bytes: 	file_bytes,																																																															
 	}      
 
 	witness, _ := frontend.NewWitness(assignment, ecc.BN254)	//Codifing the assignment in the form of a Witness using Eliptic Curves(BN254)
@@ -113,11 +151,11 @@ func prover(){
 	//----------------------------------------------Generating Proof and Public Witness----------------------------------------------------
 
 	publicWitness, _ := witness.Public()										//Spliting Witness Public Part
-
+	fmt.Printf("publicWitness: %s \n", publicWitness)
 	publicWitnessBytes, _ := publicWitness.MarshalBinary()						//Serializing Witness Public Part in order to send it to the verifier
-	
+	//publicWitnessBytes type: []uint8
 	proof, _ := groth16.Prove(r1cs, pk, witness)				
-	
+	//proof type: *groth16.Proof 
 	var proofbuffer bytes.Buffer												
 	_, _ = proof.WriteTo(&proofbuffer)											//Serializing Proof in order to send it to the verifier
 
@@ -154,6 +192,7 @@ func verifier(){
 	proofbuffer.Write(proofAsBytes)
 	
 	proof := groth16.NewProof(ecc.BN254)					//Creating new groth16.Proof type variable		
+	fmt.Printf("type: %T", proof)
 	_, _ = proof.ReadFrom(&proofbuffer)						//Retrieving Proof
 	proofbuffer.Reset()
 
@@ -165,7 +204,7 @@ func verifier(){
 	publicWitness := &witness.Witness{CurveID: ecc.BN254,} 
 	
 	publicWitness.UnmarshalBinary(publicWitnessBytes)
-
+	fmt.Println("publicWitness: ", publicWitness)
 	//-------------------------------------------------------------Verifying Proof----------------------------------------------------------
 	err := groth16.Verify(proof, vk, publicWitness)				
 	if err != nil{
