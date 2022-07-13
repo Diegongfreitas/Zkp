@@ -32,7 +32,7 @@ type Circuit struct {
 func (circuit *Circuit) Define(api frontend.API) error {
 	// Define declares the circuit's constraints
     mimc, _ := mimc.NewMiMC(api)	
-	mimc.Write(circuit.File_Bytes[:])
+	mimc.Write(circuit.File_Bytes[:]...)
     // specify constraints
     // mimc(File_Bytes) == Hash
     api.AssertIsEqual(circuit.Hash, mimc.Sum())
@@ -50,25 +50,35 @@ func fileHash() ([]byte, []frontend.Variable){
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	limit := (len(file)/32)+(len(file)%32)
+	
+	if (len(file)%32 != 0){
+		limit := (len(file)/32)+1
+	}
+	else{
+		limit := (len(file)/32)
+	}
 	var file_bytes []frontend.Variable
 	var bignum []*big.Int
 	goMimc := bn254.NewMiMC()
+	var data []byte
+	
 	for j:=0; j < limit; j++{
+		
 		// minimal cs res = hash(data)
-		var data []string
+		
 		for i:= 0; i < 32; i++{
 			data[j] = data[j] + fmt.Sprintf("%b", file[i])
 		}
-
-		// running MiMC (Go)
 		
-		bignum[j], _ = new(big.Int).SetString(data[j], 2)
+		// running MiMC (Go)
+
+		bignum[j], _ = new(big.Int).SetBytes(data[j])
 		goMimc.Write(bignum[j].Bytes())
 
 		// assert correctness against correct witness
+		
 		file_bytes[j] = data[j]
+	
 	}
 	file_hash := goMimc.Sum(nil)
 	return file_hash, file_bytes
